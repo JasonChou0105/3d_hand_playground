@@ -6,6 +6,10 @@ import * as THREE from "three";
 const DEFAULT_POSITION = [0, 0, 0];
 const DEFAULT_SIZE = [1.5, 1.5, 1.5];
 const DEFAULT_COLOR = "royalblue";
+const DEFAULT_THROW_MULTIPLIER = 0.65;
+const DEFAULT_THROW_MAX_SPEED = 25;
+const DEFAULT_THROW_SMOOTHING = 0.35;
+const DEFAULT_THROW_MIN_SPEED = 0.05;
 
 /** @param {unknown} value @param {number[]} fallback */
 function vec3(value, fallback) {
@@ -30,10 +34,14 @@ export default function Cube({
   setGrabbedId,
   position = DEFAULT_POSITION,
   size = DEFAULT_SIZE,
-  followLerp = 0.5,
+  followLerp = 0.65,
   followPlaneZ,
   fixed = false,
   color = DEFAULT_COLOR,
+  throwVelocityMultiplier = DEFAULT_THROW_MULTIPLIER,
+  throwVelocityMaxSpeed = DEFAULT_THROW_MAX_SPEED,
+  throwVelocitySmoothing = DEFAULT_THROW_SMOOTHING,
+  throwVelocityMinSpeed = DEFAULT_THROW_MIN_SPEED,
 }) {
   const rigidBodyRef = useRef(null);
   const { camera, size: viewport } = useThree();
@@ -46,6 +54,10 @@ export default function Cube({
   const planeRef = useRef(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0));
   const hitPointRef = useRef(new THREE.Vector3());
   const curWorldRef = useRef(new THREE.Vector3());
+  const prevTargetPosRef = useRef(new THREE.Vector3());
+  const prevTargetValidRef = useRef(false);
+  const throwVelRef = useRef(new THREE.Vector3());
+  const throwVelRawRef = useRef(new THREE.Vector3());
   const prevPinchedRef = useRef(false);
 
   const box = vec3(size, DEFAULT_SIZE);
@@ -60,7 +72,7 @@ export default function Cube({
 
   const initialPosition = useMemo(() => [r0, r1, r2], [r0, r1, r2]);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const rb = rigidBodyRef.current;
     if (!rb || fixed) return;
 
@@ -78,13 +90,33 @@ export default function Cube({
       y: (-projected.y * 0.5 + 0.5) * viewport.height,
     };
 
+    const applyThrowVelocity = () => {
+      const speed = throwVelRef.current.length();
+      if (speed < throwVelocityMinSpeed) return;
+
+      const v = throwVelRef.current;
+      const scaled = throwVelRawRef.current.copy(v).multiplyScalar(throwVelocityMultiplier);
+
+      // Clamp to avoid huge explosions from occasional tracking spikes.
+      const scaledSpeed = scaled.length();
+      if (scaledSpeed > throwVelocityMaxSpeed) {
+        scaled.multiplyScalar(throwVelocityMaxSpeed / scaledSpeed);
+      }
+
+      rb.setLinvel({ x: scaled.x, y: scaled.y, z: scaled.z }, true);
+      // Clear angular velocity so the throw feels “pure”.
+      rb.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    };
+
     if (!hand.indexTip) {
       if (hovered) {
         setHovered(false);
         setTouching(false);
       }
-      if (pinchEnded && isGrabbed) {
+      if (pinchEnded && grabbedId === id) {
+        applyThrowVelocity();
         setGrabbedId(null);
+        prevTargetValidRef.current = false;
       }
       prevPinchedRef.current = hand.pinched;
       return;
@@ -106,7 +138,10 @@ export default function Cube({
       setTouching(touching);
     }
 
+    // New grab only when pinch starts on this cube; release only on unpinch (hand.pinched false).
     if (pinchStarted && touching && grabbedId == null && !fixed) {
+      prevTargetValidRef.current = false;
+      throwVelRef.current.set(0, 0, 0);
       setGrabbedId(id);
     }
 
@@ -136,14 +171,42 @@ export default function Cube({
         const cur = curWorldRef.current.set(tr.x, tr.y, tr.z);
         cur.lerp(hit, followLerp);
         rb.setTranslation({ x: cur.x, y: cur.y, z: cur.z }, true);
+
+        // Estimate "hand velocity" from how fast the target position moves.
+        if (delta > 0) {
+          if (!prevTargetValidRef.current) {
+            prevTargetPosRef.current.copy(cur);
+            prevTargetValidRef.current = true;
+          } else {
+            throwVelRawRef.current
+              .copy(cur)
+              .sub(prevTargetPosRef.current)
+              .multiplyScalar(1 / delta);
+
+            if (throwVelRef.current.lengthSq() === 0) {
+              throwVelRef.current.copy(throwVelRawRef.current);
+            } else {
+              // Smooth the velocity to reduce jitter on release.
+              throwVelRef.current.lerp(
+                throwVelRawRef.current,
+                throwVelocitySmoothing
+              );
+            }
+
+            prevTargetPosRef.current.copy(cur);
+          }
+        }
       }
 
       prevPinchedRef.current = hand.pinched;
       return;
     }
 
-    if (pinchEnded && isGrabbed) {
+    if (pinchEnded && grabbedId === id) {
+      applyThrowVelocity();
       setGrabbedId(null);
+      prevTargetValidRef.current = false;
+      throwVelRef.current.set(0, 0, 0);
     }
 
     prevPinchedRef.current = hand.pinched;

@@ -5,8 +5,10 @@ import "@mediapipe/camera_utils";
 
 const { Hands, Camera } = globalThis;
 
-/** Normalized 2D distance (thumb tip vs index tip); pinch when below this. */
+/** Normalized 2D distance (thumb tip vs index tip): latch pinch closed. */
 export const PINCH_DISTANCE_THRESHOLD = 0.06;
+/** Release pinch only above this (hysteresis — avoids losing grab when hand moves). */
+export const PINCH_RELEASE_THRESHOLD = 0.11;
 
 function smooth2D(current, target, alpha = 0.22) {
   if (!current) return target;
@@ -53,6 +55,8 @@ export default function useHandTracker() {
     let camera = null;
     let smoothedIndex = null;
     let lastInteractionKey = null;
+    /** Stable pinch: stays closed until fingers clearly open (screen distance irrelevant). */
+    let pinchClosed = false;
 
     async function init() {
       if (!videoRef.current) return;
@@ -88,6 +92,7 @@ export default function useHandTracker() {
         if (handsLm.length === 0) {
           smoothedIndex = null;
           lastInteractionKey = null;
+          pinchClosed = false;
           setHand((prev) => ({
             ...prev,
             ...emptyHandState(),
@@ -99,6 +104,7 @@ export default function useHandTracker() {
         if (!leftLm) {
           smoothedIndex = null;
           lastInteractionKey = null;
+          pinchClosed = false;
           setHand({
             ready: true,
             visible: false,
@@ -125,6 +131,9 @@ export default function useHandTracker() {
 
         const fingerDistance = distance2D(indexTipRaw, thumbTip);
 
+        if (fingerDistance < PINCH_DISTANCE_THRESHOLD) pinchClosed = true;
+        else if (fingerDistance > PINCH_RELEASE_THRESHOLD) pinchClosed = false;
+
         setHand({
           ready: true,
           visible: true,
@@ -132,7 +141,7 @@ export default function useHandTracker() {
           indexTip: smoothedIndex,
           thumbTip,
           fingerDistance,
-          pinched: fingerDistance < PINCH_DISTANCE_THRESHOLD,
+          pinched: pinchClosed,
           overlayHands,
         });
       });

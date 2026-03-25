@@ -48,33 +48,14 @@ export default function ThreeScene({ hand, setTouching }) {
         size={[0.3, 0.3, 0.3]}
         color="coral"
       />
-      <Cube
-        id="cube5"
-        hand={hand}
-        setTouching={setTouching}
-        grabbedId={grabbedId}
-        setGrabbedId={setGrabbedId}
-        position={[1, 1, 0]}
-        size={[0.3, 0.3, 0.3]}
-        color="coral"
-      />
-      <Cube
-        id="cube6"
-        hand={hand}
-        setTouching={setTouching}
-        grabbedId={grabbedId}
-        setGrabbedId={setGrabbedId}
-        position={[-2, 1, 0]}
-        size={[0.3, 0.3, 0.3]}
-        color="coral"
-      />
+      
       <Cube
         id="floor"
         hand={hand}
         setTouching={setTouching}
         grabbedId={grabbedId}
         setGrabbedId={setGrabbedId}
-        position={[0, -1, 0]}
+        position={[0, -2, 0]}
         size={[15, 0.2, 15]}
         fixed={true}
         color="#3d4454"
