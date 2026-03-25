@@ -22,6 +22,19 @@ function distance2D(a, b) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+function emptyHandState() {
+  return {
+    ready: true,
+    visible: false,
+    landmarks: null,
+    indexTip: null,
+    thumbTip: null,
+    fingerDistance: null,
+    pinched: false,
+    overlayHands: [],
+  };
+}
+
 export default function useHandTracker() {
   const videoRef = useRef(null);
   const [hand, setHand] = useState({
@@ -32,12 +45,14 @@ export default function useHandTracker() {
     thumbTip: null,
     fingerDistance: null,
     pinched: false,
+    overlayHands: [],
   });
 
   useEffect(() => {
     let mounted = true;
     let camera = null;
     let smoothedIndex = null;
+    let lastInteractionKey = null;
 
     async function init() {
       if (!videoRef.current) return;
@@ -48,7 +63,7 @@ export default function useHandTracker() {
       });
 
       hands.setOptions({
-        maxNumHands: 1,
+        maxNumHands: 2,
         modelComplexity: 1,
         minDetectionConfidence: 0.7,
         minTrackingConfidence: 0.7,
@@ -57,31 +72,34 @@ export default function useHandTracker() {
       hands.onResults((results) => {
         if (!mounted) return;
 
-        if (
-          results.multiHandLandmarks &&
-          results.multiHandLandmarks.length > 0
-        ) {
-          const lm = results.multiHandLandmarks[0];
+        const handsLm = results.multiHandLandmarks || [];
+        const handedness = results.multiHandedness || [];
 
-          const indexTipRaw = { x: lm[8].x, y: lm[8].y };
-          const thumbTip = { x: lm[4].x, y: lm[4].y };
+        const overlayHands = handsLm.map((lm, i) => ({
+          landmarks: lm.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+          label: handedness[i]?.label ?? "?",
+        }));
 
-          smoothedIndex = smooth2D(smoothedIndex, indexTipRaw, 0.2);
+        let leftLm = null;
+        for (let i = 0; i < handsLm.length; i++) {
+          if (handedness[i]?.label === "Left") leftLm = handsLm[i];
+        }
 
-          const fingerDistance = distance2D(indexTipRaw, thumbTip);
-
-          setHand({
-            ready: true,
-            visible: true,
-            landmarks: lm.map((p) => ({ x: p.x, y: p.y, z: p.z })),
-            indexTip: smoothedIndex,
-            thumbTip,
-            fingerDistance,
-            pinched: fingerDistance < PINCH_DISTANCE_THRESHOLD,
-          });
-        } else {
+        if (handsLm.length === 0) {
+          smoothedIndex = null;
+          lastInteractionKey = null;
           setHand((prev) => ({
             ...prev,
+            ...emptyHandState(),
+            overlayHands: [],
+          }));
+          return;
+        }
+
+        if (!leftLm) {
+          smoothedIndex = null;
+          lastInteractionKey = null;
+          setHand({
             ready: true,
             visible: false,
             landmarks: null,
@@ -89,8 +107,34 @@ export default function useHandTracker() {
             thumbTip: null,
             fingerDistance: null,
             pinched: false,
-          }));
+            overlayHands,
+          });
+          return;
         }
+
+        const lm = leftLm;
+        if (lastInteractionKey !== "L") {
+          smoothedIndex = null;
+          lastInteractionKey = "L";
+        }
+
+        const indexTipRaw = { x: lm[8].x, y: lm[8].y };
+        const thumbTip = { x: lm[4].x, y: lm[4].y };
+
+        smoothedIndex = smooth2D(smoothedIndex, indexTipRaw, 0.2);
+
+        const fingerDistance = distance2D(indexTipRaw, thumbTip);
+
+        setHand({
+          ready: true,
+          visible: true,
+          landmarks: lm.map((p) => ({ x: p.x, y: p.y, z: p.z })),
+          indexTip: smoothedIndex,
+          thumbTip,
+          fingerDistance,
+          pinched: fingerDistance < PINCH_DISTANCE_THRESHOLD,
+          overlayHands,
+        });
       });
 
       camera = new Camera(videoRef.current, {

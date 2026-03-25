@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
 // Legacy @mediapipe/* bundles attach APIs to globalThis (no ESM exports).
 import "@mediapipe/hands";
 import "@mediapipe/drawing_utils";
 import useHandTracker from "./useHandTracker";
-import Cube from "./components/Cube.jsx";
+import ThreeScene from "./components/ThreeScene.jsx";
 import "./App.css";
+import { Physics } from "@react-three/rapier";
 
 function paintHandSkeleton(canvas, handState) {
   if (!canvas) return;
@@ -25,8 +25,9 @@ function paintHandSkeleton(canvas, handState) {
       drawConnectors,
       drawLandmarks,
       HAND_CONNECTIONS,
-      globalKeys: Object.keys(globalThis).filter((k) =>
-        k.toLowerCase().includes("hand") || k.toLowerCase().includes("draw")
+      globalKeys: Object.keys(globalThis).filter(
+        (k) =>
+          k.toLowerCase().includes("hand") || k.toLowerCase().includes("draw"),
       ),
     });
     return;
@@ -43,31 +44,40 @@ function paintHandSkeleton(canvas, handState) {
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, w, h);
 
-  if (!handState.visible || !handState.landmarks) return;
+  const list =
+    handState.overlayHands?.length > 0
+      ? handState.overlayHands
+      : handState.visible && handState.landmarks
+        ? [{ landmarks: handState.landmarks, label: "?" }]
+        : [];
 
-  const mirroredLandmarks = handState.landmarks.map((p) => ({
-    x: 1 - p.x,
-    y: p.y,
-    z: p.z,
-  }));
+  if (list.length === 0) return;
 
-  drawConnectors(ctx, mirroredLandmarks, HAND_CONNECTIONS, {
-    color: "#00FFAA",
-    lineWidth: 5,
-  });
+  for (const { landmarks } of list) {
+    const mirroredLandmarks = landmarks.map((p) => ({
+      x: 1 - p.x,
+      y: p.y,
+      z: p.z,
+    }));
 
-  drawLandmarks(ctx, mirroredLandmarks, {
-    color: "#FFFFFF",
-    lineWidth: 2,
-    radius: 5,
-  });
+    drawConnectors(ctx, mirroredLandmarks, HAND_CONNECTIONS, {
+      color: "#00FFAA",
+      lineWidth: 5,
+    });
 
-  const tip = mirroredLandmarks[8];
-  if (tip) {
-    ctx.beginPath();
-    ctx.arc(tip.x * w, tip.y * h, 12, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255, 80, 80, 0.95)";
-    ctx.fill();
+    drawLandmarks(ctx, mirroredLandmarks, {
+      color: "#FFFFFF",
+      lineWidth: 2,
+      radius: 5,
+    });
+
+    const tip = mirroredLandmarks[8];
+    if (tip) {
+      ctx.beginPath();
+      ctx.arc(tip.x * w, tip.y * h, 12, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 80, 80, 0.95)";
+      ctx.fill();
+    }
   }
 }
 
@@ -121,16 +131,11 @@ export default function App() {
         gl={{ alpha: true }}
         onCreated={({ gl }) => gl.setClearColor(0, 0)}
       >
-        <ambientLight intensity={1.2} />
-        <directionalLight position={[3, 4, 5]} intensity={1.8} />
-        <Cube
-          hand={hand}
-          setTouching={setTouching}
-          position={[1, 1, 0]}
-          size={[0.3, 0.3, 0.3]}
-        />
-        
-        <OrbitControls enablePan={false} />
+        <Suspense fallback={null}>
+          <Physics gravity={[0, -9.81, 0]} debug>
+            <ThreeScene hand={hand} setTouching={setTouching} />
+          </Physics>
+        </Suspense>
       </Canvas>
 
       <HandSkeletonOverlay hand={hand} />
