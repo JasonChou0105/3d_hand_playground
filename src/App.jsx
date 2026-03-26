@@ -143,7 +143,7 @@ export default function App() {
       <div className="absolute top-3 left-3 z-30 rounded bg-black/60 px-3 py-2 text-white">
         <div>hand: {hand.visible ? "yes" : "no"}</div>
         <div>touching: {touching ? "yes" : "no"}</div>
-        <div>distance: {hand.fingerDistance?.toFixed(4) ?? "—"}</div>
+        <div>pinch ratio: {hand.fingerDistance?.toFixed(3) ?? "—"}</div>
         <div>pinched: {hand.pinched ? "yes" : "no"}</div>
       </div>
     </div>
